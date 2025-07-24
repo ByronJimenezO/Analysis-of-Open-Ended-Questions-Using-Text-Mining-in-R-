@@ -1,0 +1,199 @@
+library(NLP)
+library("tm")
+library("SnowballC")
+library("wordcloud")
+library("RColorBrewer")
+library("syuzhet")
+library("ggplot2")
+
+
+
+text <- readLines(file.choose(),encoding='UTF-8')
+
+
+
+TextDoc <- Corpus(VectorSource(text))
+
+
+
+#head(TextDoc)
+#head(text)
+
+#clean up data text
+#Replacing "/", "@" and "|" with space
+toSpace <- content_transformer(function (x , pattern ) gsub(pattern, " ", x))
+TextDoc <- tm_map(TextDoc, toSpace, "/")
+TextDoc <- tm_map(TextDoc, toSpace, "@")
+TextDoc <- tm_map(TextDoc, toSpace, "\\|")
+# Convert the text to lower case
+TextDoc <- tm_map(TextDoc, content_transformer(tolower))
+# Remove numbers
+TextDoc <- tm_map(TextDoc, removeNumbers)
+# Remove english common stopwords
+TextDoc <- tm_map(TextDoc, removeWords, stopwords("spanish"))
+# Remove your own stop word
+
+# Remove punctuations
+TextDoc <- tm_map(TextDoc, removePunctuation)
+# Eliminate extra white spaces
+TextDoc <- tm_map(TextDoc, stripWhitespace)
+# Text stemming - which reduces words to their root form
+TextDoc <- tm_map(TextDoc, stemDocument)
+# specify your custom stopwords as a character vector
+TextDoc <- tm_map(TextDoc, removeWords, c("área","toda","hace","estudiant", "práctica","profesor","curso","materia","laboratorio", "clase","tema")) 
+
+text_content <- sapply(TextDoc, as.character)
+#install.packages('Rcpp')
+#renv::restore()
+#env:::renv_lockfile_from_manifest()
+
+library(Rcpp)
+
+
+# Build a term-document matrix
+
+TextDoc_dtm <- TermDocumentMatrix(TextDoc)
+dtm_m <- as.matrix(TextDoc_dtm)
+
+
+# Sort by descearing value of frequency
+dtm_v <- sort(rowSums(dtm_m),decreasing=TRUE)
+dtm_d <- data.frame(word = names(dtm_v),freq=dtm_v)
+# Display the top 5 most frequent words
+head(dtm_d, 15)
+
+
+barplot(dtm_d[1:5,]$freq, las = 2, names.arg = dtm_d[1:5,]$word,
+        col ="lightgreen", main ="Top 5 most frequent words",
+        ylab = "Word frequencies")
+
+ggplot(dtm_d[1:9,],aes(reorder(word, freq),freq,fill=word)) + 
+  geom_bar(stat='identity')+coord_flip() +
+  scale_fill_brewer(palette="Pastel1")+
+  theme(axis.line = element_line(colour = "lightblue", 
+                                 size = 1, linetype = "solid"),
+        panel.background = element_rect(fill= "white"))+
+  guides(fill="none")+
+  labs(x = "Palabras", y = "Frecuencias")#, title = "Frecuencias de palabras")
+
+
+
+dtm_d[1:15,]
+
+#generate word cloud
+set.seed(1234)
+wordcloud(words = dtm_d$word, freq = dtm_d$freq, min.freq = 5,
+          max.words=100, random.order=FALSE, rot.per=0.40, 
+          colors=brewer.pal(8, "Dark2"))
+
+dtm_d
+# Find associations 
+findAssocs(TextDoc_dtm, terms = c("conocimiento","explicación","duda","disposición"), corlimit = 0.25)	
+
+# Find associations for words that occur at least 50 times
+findAssocs(TextDoc_dtm, terms = findFreqTerms(TextDoc_dtm, lowfreq = 50), corlimit = 0.25)
+
+
+# regular sentiment score using get_sentiment() function and method of your choice
+# please note that different methods may have different scales
+syuzhet_vector <- get_sentiment(text, method="syuzhet")
+# see the first row of the vector
+head(syuzhet_vector)
+# see summary statistics of the vector
+summary(syuzhet_vector)
+
+
+# bing
+bing_vector <- get_sentiment(text, method="bing")
+head(bing_vector)
+summary(bing_vector)
+#affin
+afinn_vector <- get_sentiment(text, method="afinn")
+head(afinn_vector)
+summary(afinn_vector)
+
+
+#compare the first row of each vector using sign function
+rbind(
+  sign(head(syuzhet_vector)),
+  sign(head(bing_vector)),
+  sign(head(afinn_vector))
+)
+
+
+# run nrc sentiment analysis to return data frame with each row classified as one of the following
+# emotions, rather than a score: 
+# anger, anticipation, disgust, fear, joy, sadness, surprise, trust 
+# It also counts the number of positive and negative emotions found in each row
+d<-get_nrc_sentiment(text, language = "spanish")
+# head(d,10) - to see top 10 lines of the get_nrc_sentiment dataframe
+head (d,10)
+
+
+##############
+#emocion.df2 <- cbind(text, d)
+#head(emocion.df2)
+
+
+#########
+
+
+#transpose
+td<-data.frame(t(d))
+#The function rowSums computes column sums across rows for each level of a grouping variable.
+td_new <- data.frame(rowSums(td[2:253]))
+#Transformation and cleaning
+names(td_new)[1] <- "count"
+td_new <- cbind("sentiment" = rownames(td_new), td_new)
+rownames(td_new) <- NULL
+td_new2<-td_new[1:8,]
+#Plot One - count of words associated with each sentiment
+quickplot(sentiment, data=td_new2, weight=count, geom="bar", fill=sentiment, ylab="count")+ggtitle("Survey sentiments")
+#Plot One - count of words associated with each sentiment
+quickplot(sentiment, data=td_new2, weight=count, geom="bar", fill=sentiment, ylab="count")+ggtitle("Survey sentiments")+
+  scale_fill_brewer(palette="Pastel1")
+
+
+#Español
+quickplot(sentiment, data=td_new2, weight=count, geom="bar", fill=sentiment, ylab="conteo") + 
+  ggtitle(" ") +
+  scale_fill_brewer(palette="Pastel1")
+
+ggplot(data=td_new2, aes(x=sentiment, y=count, fill=sentiment)) +
+  geom_bar(stat="identity") +
+  labs(title="Sentimientos de la encuesta", y="conteo") +
+  scale_fill_brewer(palette="Pastel1") +
+  scale_x_discrete(labels=c("anger"="Ira", "anticipation"="Anticipación", 
+                            "disgust"="Disgusto", "fear"="Miedo", 
+                            "joy"="Alegría", "sadness"="Tristeza", 
+                            "surprise"="Sorpresa", "trust"="Confianza"))
+
+ggplot(data=td_new2, aes(x=reorder(sentiment, count), y=count, fill=sentiment)) +
+  geom_bar(stat="identity") +
+  labs(, y="Conteo", x="Sentimiento") +
+  scale_fill_brewer(palette="Pastel1") +
+  scale_x_discrete(labels=c("anger"="Ira", "anticipation"="Anticipación", 
+                            "disgust"="Disgusto", "fear"="Miedo", 
+                            "joy"="Alegría", "sadness"="Tristeza", 
+                            "surprise"="Sorpresa", "trust"="Confianza")) +
+  guides(fill=FALSE) +  # Eliminar la leyenda de colores
+  coord_flip()
+
+
+#Positive negative
+td_new2<-td_new[9:10,]
+#Plot One - count of words associated with each sentiment
+quickplot(sentiment, data=td_new2, weight=count, geom="bar", fill=sentiment, ylab="count")+
+  labs(, y="Conteo", x="Sentimiento")+
+  scale_fill_brewer(palette="Pastel1")+
+  guides(fill=FALSE)
+
+
+#Plot two - count of words associated with each sentiment, expressed as a percentage
+barplot(
+  sort(colSums(prop.table(d[, 1:8]))), 
+  horiz = TRUE, 
+  cex.names = 0.7, 
+  las = 1, 
+  main = "Emotions in Text", xlab="Percentage"
+)
